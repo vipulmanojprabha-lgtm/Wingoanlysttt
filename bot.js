@@ -18,7 +18,7 @@ http.createServer((req, res) => {
 // ==============================================================
 // 2. CONFIGURATION & TIME SETTINGS
 // ==============================================================
-const BOT_TOKEN = '9105400057:AAHyiNMG8JWIoPbXyxzHYsHeLUkXDRegif8';
+const BOT_TOKEN = '9035645654:AAFHoRNKHSuehNE4rH7FbyIx1ofx82vrLj4';
 const ADMIN_ID = 6363654573; // Aapka Telegram User ID
 let CHANNEL_ID = null; 
 const GAME_MODE = '30sec'; // WinGo 30s API
