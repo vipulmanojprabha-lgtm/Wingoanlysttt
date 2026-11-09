@@ -14,13 +14,17 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 2. BOT CONFIGURATION (NEW TOKEN APPLIED)
+// 2. CONFIGURATION & IMAGES
 // ==========================================
 const BOT_TOKEN = '9035645654:AAFHoRNKHSuehNE4rH7FbyIx1ofx82vrLj4';
-const TARGET_WINS = 10; // 10 Win hote hi apne aap band hoga
+const TARGET_WINS = 10; // 10 Wins hote hi bot auto-stop hoga
 
-let CHANNEL_ID = null; // Channel post aate hi auto detect hoga
-let isBotActive = false; // By default off, jab aap chahein tab shuru
+// 🖼️ APNE IMAGES KE DIRECT URL (Agar change karna ho toh yahan link badal sakte hain)
+const START_IMAGE_URL = 'https://i.ibb.co/vz1yW9s/start-poster.jpg';
+const CLOSE_IMAGE_URL = 'https://i.ibb.co/3s6K8N7/close-poster.jpg';
+
+let CHANNEL_ID = null;
+let isBotActive = false;
 let sessionWins = 0;
 let currentLevel = 1;
 let pendingPrediction = null;
@@ -38,87 +42,121 @@ const API_ENDPOINTS = [
 ];
 
 // ==========================================
-// 3. START & CLOSE POSTERS
+// 3. EXACT ROOT DIGIT ENGINE (FROM HTML FILE)
+// ==========================================
+const REQUIRED_RESULTS = 5;
+const REVERSE_LEVELS = [2, 3]; // Level 2 aur 3 par reverse karega
+
+function isReverseLevel(level) {
+    return REVERSE_LEVELS.includes(Number(level));
+}
+
+function flipSignal(sig) {
+    if (sig === 'BIG') return 'SMALL';
+    if (sig === 'SMALL') return 'BIG';
+    return sig;
+}
+
+function computePredictionDetails(numbers) {
+    if (!Array.isArray(numbers) || numbers.length < REQUIRED_RESULTS) return null;
+    const five = numbers.slice(0, REQUIRED_RESULTS).map(Number);
+    if (five.some(n => !Number.isFinite(n))) return null;
+
+    const sum = five.reduce((a, b) => a + b, 0);
+    let current = sum;
+
+    while (current > 9) {
+        const digits = String(current).split('').map(Number);
+        current = digits.reduce((a, b) => a + b, 0);
+    }
+
+    const rootDigit = current;
+    const rawPrediction = rootDigit >= 5 ? 'BIG' : 'SMALL';
+    return { numbers: five, sum, rootDigit, rawPrediction };
+}
+
+// ==========================================
+// 4. POSTERS WITH PHOTO (START & CLOSE)
 // ==========================================
 async function sendStartPoster() {
     if (!CHANNEL_ID) return;
-    const msg = `🔥 *VIPUL BHAI LIVE PREDICTION SESSION START* 🔥\n\n` +
-                `🎮 *Game:* WinGo 30s\n` +
-                `🎯 *Target:* ${TARGET_WINS} CONFIRMED WINS\n` +
-                `💰 *Fund Management:* Maintain 5 to 7 Levels\n\n` +
-                `⚡ _Signals starting now! Follow strictly._`;
+    const caption = `🔥 *VIPUL BHAI OFFICIAL TRADING SESSION START* 🔥\n\n` +
+                    `🎮 *Game:* WinGo 30s (Spider Engine)\n` +
+                    `🎯 *Target:* ${TARGET_WINS} CONFIRMED WINS\n` +
+                    `💰 *Fund Management:* Maintain 5 to 7 Levels\n\n` +
+                    `⚡ _Signals starting now! Follow strictly._`;
     try {
-        await bot.sendMessage(CHANNEL_ID, msg, { parse_mode: 'Markdown' });
+        await bot.sendPhoto(CHANNEL_ID, START_IMAGE_URL, { caption: caption, parse_mode: 'Markdown' });
     } catch (e) {
-        console.error('Error sending start poster:', e.message);
+        await bot.sendMessage(CHANNEL_ID, caption, { parse_mode: 'Markdown' });
     }
 }
 
 async function sendClosePoster() {
     if (!CHANNEL_ID) return;
-    const msg = `🎉 *SESSION FINISHED - 10 WINS COMPLETED!* 🎉\n\n` +
-                `✅ *Total Wins:* ${sessionWins}/${TARGET_WINS} WINS\n` +
-                `💰 *Book Heavy Profits! Session Closed.* 💰\n\n` +
-                `Agla session Vipul Bhai ke order par start hoga! 🚀`;
+    const caption = `🎉 *SESSION FINISHED - TARGET ACHIEVED!* 🎉\n\n` +
+                    `✅ *Total Wins:* ${sessionWins}/${TARGET_WINS} WINS\n` +
+                    `💰 *All Members Book Heavy Profits!* 💰\n\n` +
+                    `Agla session Vipul Bhai ke order par start hoga! 🚀`;
     try {
-        await bot.sendMessage(CHANNEL_ID, msg, { parse_mode: 'Markdown' });
+        await bot.sendPhoto(CHANNEL_ID, CLOSE_IMAGE_URL, { caption: caption, parse_mode: 'Markdown' });
     } catch (e) {
-        console.error('Error sending close poster:', e.message);
+        await bot.sendMessage(CHANNEL_ID, caption, { parse_mode: 'Markdown' });
     }
 }
 
 // ==========================================
-// 4. ON-DEMAND CONTROL (CHANNEL & PRIVATE)
+// 5. ON-DEMAND SESSION CONTROLS
 // ==========================================
-function startSession(chatId) {
+async function startSession(chatId) {
     isBotActive = true;
     sessionWins = 0;
     currentLevel = 1;
     pendingPrediction = null;
     lastProcessedIssue = null;
-    sendStartPoster();
-    bot.sendMessage(chatId, `✅ *Prediction Session Started! Target: ${TARGET_WINS} Wins.*`, { parse_mode: 'Markdown' });
+    await sendStartPoster();
 }
 
-function stopSession(chatId) {
+async function stopSession(chatId) {
     isBotActive = false;
     pendingPrediction = null;
-    bot.sendMessage(chatId, `⏹ *Prediction Session Stopped Manually!*`, { parse_mode: 'Markdown' });
-    if (CHANNEL_ID && chatId !== CHANNEL_ID) {
-        bot.sendMessage(CHANNEL_ID, `⏹ *Session Stopped by Admin!*`, { parse_mode: 'Markdown' });
+    if (CHANNEL_ID) {
+        await bot.sendMessage(CHANNEL_ID, `⏹ *Session Stopped by Admin!*`, { parse_mode: 'Markdown' });
     }
 }
 
-// Channel me /start ya koi message aane par detection
-bot.on('channel_post', (msg) => {
+// Channel Commands (/start ya /stop)
+bot.on('channel_post', async (msg) => {
     CHANNEL_ID = msg.chat.id;
     const text = (msg.text || '').trim();
 
     if (text === '/start') {
-        startSession(msg.chat.id);
+        await startSession(msg.chat.id);
     } else if (text === '/stop') {
-        stopSession(msg.chat.id);
+        await stopSession(msg.chat.id);
     }
 });
 
-// Private message commands
-bot.on('message', (msg) => {
+// Private Bot DM Commands
+bot.on('message', async (msg) => {
     if (msg.chat.type === 'private') {
         const text = (msg.text || '').trim();
         if (text === '/start') {
             if (!CHANNEL_ID) {
-                bot.sendMessage(msg.chat.id, `⚠️ Pehle apne Telegram Channel me koi bhi ek text bhejo taaki bot channel ko detect kar sake!`);
+                bot.sendMessage(msg.chat.id, `⚠️ Pehle apne Channel me koi bhi message bhejo taaki bot channel link kar sake!`);
                 return;
             }
-            startSession(msg.chat.id);
+            await startSession(msg.chat.id);
+            bot.sendMessage(msg.chat.id, `▶️ Bot Live ho gaya hai channel me!`);
         } else if (text === '/stop') {
-            stopSession(msg.chat.id);
+            await stopSession(msg.chat.id);
+            bot.sendMessage(msg.chat.id, `⏹ Bot Band kar diya gaya hai!`);
         }
     }
 });
 
 // ==========================================
-// 5. DATA FETCHER
+// 6. API FETCH
 // ==========================================
 async function fetchLatestData() {
     for (const url of API_ENDPOINTS) {
@@ -133,7 +171,7 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 6. PREDICTION ENGINE (10 WINS AUTO-STOP)
+// 7. PREDICTION ENGINE LOOP
 // ==========================================
 async function runEngine() {
     if (busy || !isBotActive || !CHANNEL_ID) return;
@@ -148,7 +186,7 @@ async function runEngine() {
         }
 
         const list = await fetchLatestData();
-        if (!list || list.length === 0) {
+        if (!list || list.length < REQUIRED_RESULTS) {
             busy = false;
             return;
         }
@@ -158,7 +196,7 @@ async function runEngine() {
         const latestNum = parseInt(latestResult.number);
         const actualResult = latestNum >= 5 ? 'BIG' : 'SMALL';
 
-        // Result validation
+        // 1. Check Result for Pending Prediction
         if (pendingPrediction && pendingPrediction.issue === latestIssue) {
             if (pendingPrediction.predicted === actualResult) {
                 sessionWins++;
@@ -166,7 +204,7 @@ async function runEngine() {
                                `✅ *WIN WIN WIN!* 🎉\n` +
                                `🏆 *Session Wins:* [${sessionWins}/${TARGET_WINS}]`;
                 await bot.sendMessage(CHANNEL_ID, winMsg, { parse_mode: 'Markdown' });
-                currentLevel = 1;
+                currentLevel = 1; // Reset to level 1 on win
             } else {
                 currentLevel++;
                 const lossMsg = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
@@ -183,27 +221,45 @@ async function runEngine() {
             }
         }
 
-        // Agle round ka prediction
+        // 2. Generate Prediction for Next Period
         const nextIssue = (BigInt(latestIssue) + 1n).toString();
         if (lastProcessedIssue !== nextIssue && !pendingPrediction) {
             lastProcessedIssue = nextIssue;
 
-            const predictedValue = actualResult; // Trend follow
-            pendingPrediction = {
-                issue: nextIssue,
-                predicted: predictedValue
-            };
+            // HTML File Logic: Aakhri 5 numbers ka sum & root digit
+            const historyFive = list.slice(0, REQUIRED_RESULTS).map(item => Number(item.number));
+            const details = computePredictionDetails(historyFive);
 
-            const predMsg = `📊 *VIPUL BHAI 30S PREDICTION*\n` +
-                            `━━━━━━━━━━━━━━━━━━━\n` +
-                            `🎮 *Period:* \`${nextIssue.slice(-4)}\`\n` +
-                            `🎯 *Prediction:* *${predictedValue}*\n` +
-                            `📈 *Level:* ${currentLevel}\n` +
-                            `🏆 *Target:* [${sessionWins}/${TARGET_WINS}] Wins\n` +
-                            `━━━━━━━━━━━━━━━━━━━\n` +
-                            `⏳ _Wait for result..._`;
+            if (details) {
+                let finalPrediction = details.rawPrediction;
+                let isReversed = false;
 
-            await bot.sendMessage(CHANNEL_ID, predMsg, { parse_mode: 'Markdown' });
+                // Level 2 & 3 Reverse logic
+                if (isReverseLevel(currentLevel)) {
+                    finalPrediction = flipSignal(finalPrediction);
+                    isReversed = true;
+                }
+
+                pendingPrediction = {
+                    issue: nextIssue,
+                    predicted: finalPrediction
+                };
+
+                const calcInfo = `[${details.numbers.join('+')}=${details.sum} ➜ Root: ${details.rootDigit}]`;
+                const revTag = isReversed ? ` 🔄 *(L${currentLevel} REV)*` : '';
+
+                const predMsg = `📊 *VIPUL BHAI 30S PREDICTION*\n` +
+                                `━━━━━━━━━━━━━━━━━━━\n` +
+                                `🎮 *Period:* \`${nextIssue.slice(-4)}\`\n` +
+                                `🎯 *Prediction:* *${finalPrediction}*${revTag}\n` +
+                                `📈 *Level:* ${currentLevel}\n` +
+                                `🧮 *Calc:* \`${calcInfo}\`\n` +
+                                `🏆 *Target:* [${sessionWins}/${TARGET_WINS}] Wins\n` +
+                                `━━━━━━━━━━━━━━━━━━━\n` +
+                                `⏳ _Wait for result..._`;
+
+                await bot.sendMessage(CHANNEL_ID, predMsg, { parse_mode: 'Markdown' });
+            }
         }
 
     } catch (err) {
@@ -214,4 +270,4 @@ async function runEngine() {
 }
 
 setInterval(runEngine, 3500);
-console.log('🤖 Bot Ready with New Token! Start on demand, Auto-Stop at 10 Wins.');
+console.log('🤖 Root-Digit Logic Bot with Photos Ready!');
