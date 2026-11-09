@@ -14,13 +14,13 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 2. BOT CONFIGURATION
+// 2. BOT CONFIGURATION (NEW TOKEN APPLIED)
 // ==========================================
-const BOT_TOKEN = '9035645654:AAFHONNKHtSuehNE4rH7FbyIxtofx82vrLj4';
-const TARGET_WINS = 10; // 10 Win hote hi bot band ho jayega
+const BOT_TOKEN = '9035645654:AAFHoRNKHSuehNE4rH7FbyIx1ofx82vrLj4';
+const TARGET_WINS = 10; // 10 Win hote hi apne aap band hoga
 
-let CHANNEL_ID = null; // Channel auto-detect hoga
-let isBotActive = false; // By default band rahega jab tak aap start na karein
+let CHANNEL_ID = null; // Channel post aate hi auto detect hoga
+let isBotActive = false; // By default off, jab aap chahein tab shuru
 let sessionWins = 0;
 let currentLevel = 1;
 let pendingPrediction = null;
@@ -38,7 +38,7 @@ const API_ENDPOINTS = [
 ];
 
 // ==========================================
-// 3. START & STOP POSTERS
+// 3. START & CLOSE POSTERS
 // ==========================================
 async function sendStartPoster() {
     if (!CHANNEL_ID) return;
@@ -68,7 +68,7 @@ async function sendClosePoster() {
 }
 
 // ==========================================
-// 4. ON-DEMAND CONTROL (CHANNEL YA PRIVATE CHAT)
+// 4. ON-DEMAND CONTROL (CHANNEL & PRIVATE)
 // ==========================================
 function startSession(chatId) {
     isBotActive = true;
@@ -89,7 +89,7 @@ function stopSession(chatId) {
     }
 }
 
-// Channel se command capture
+// Channel me /start ya koi message aane par detection
 bot.on('channel_post', (msg) => {
     CHANNEL_ID = msg.chat.id;
     const text = (msg.text || '').trim();
@@ -101,7 +101,7 @@ bot.on('channel_post', (msg) => {
     }
 });
 
-// Private message se command capture
+// Private message commands
 bot.on('message', (msg) => {
     if (msg.chat.type === 'private') {
         const text = (msg.text || '').trim();
@@ -133,14 +133,13 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 6. PREDICTION ENGINE (MANUAL TRIGGER BASED)
+// 6. PREDICTION ENGINE (10 WINS AUTO-STOP)
 // ==========================================
 async function runEngine() {
     if (busy || !isBotActive || !CHANNEL_ID) return;
     busy = true;
 
     try {
-        // Target pura hote hi auto close
         if (sessionWins >= TARGET_WINS) {
             isBotActive = false;
             await sendClosePoster();
@@ -176,7 +175,6 @@ async function runEngine() {
             }
             pendingPrediction = null;
 
-            // Result ke turant baad 10 win verify
             if (sessionWins >= TARGET_WINS) {
                 isBotActive = false;
                 await sendClosePoster();
@@ -185,13 +183,12 @@ async function runEngine() {
             }
         }
 
-        // Next prediction issue
+        // Agle round ka prediction
         const nextIssue = (BigInt(latestIssue) + 1n).toString();
         if (lastProcessedIssue !== nextIssue && !pendingPrediction) {
             lastProcessedIssue = nextIssue;
 
-            // Trend pattern follow
-            const predictedValue = actualResult;
+            const predictedValue = actualResult; // Trend follow
             pendingPrediction = {
                 issue: nextIssue,
                 predicted: predictedValue
@@ -216,6 +213,5 @@ async function runEngine() {
     }
 }
 
-// Har 3.5 second me status check
 setInterval(runEngine, 3500);
-console.log('🤖 Manual Control Bot Ready: Start on /start, Auto-Stop at 10 Wins!');
+console.log('🤖 Bot Ready with New Token! Start on demand, Auto-Stop at 10 Wins.');
