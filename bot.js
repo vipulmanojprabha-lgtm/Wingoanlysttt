@@ -14,14 +14,15 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 2. CONFIGURATION & IMAGES
+// 2. CONFIGURATION & MEDIA LINKS
 // ==========================================
 const BOT_TOKEN = '9035645654:AAFHoRNKHSuehNE4rH7FbyIx1ofx82vrLj4';
 const TARGET_WINS = 10; // 10 Wins hote hi bot auto-stop hoga
 
-// 🖼️ APNE IMAGES KE DIRECT URL (Agar change karna ho toh yahan link badal sakte hain)
-const START_IMAGE_URL = 'https://i.ibb.co/vz1yW9s/start-poster.jpg';
-const CLOSE_IMAGE_URL = 'https://i.ibb.co/3s6K8N7/close-poster.jpg';
+// 🖼️ वर्किंग इमेज और विनिंग GIF लिंक्स
+const START_IMAGE_URL = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80';
+const CLOSE_IMAGE_URL = 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1200&q=80';
+const WIN_GIF_URL = 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif'; // Celebration Winning GIF
 
 let CHANNEL_ID = null;
 let isBotActive = false;
@@ -171,7 +172,7 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 7. PREDICTION ENGINE LOOP
+// 7. PREDICTION ENGINE LOOP (WITH WIN GIF)
 // ==========================================
 async function runEngine() {
     if (busy || !isBotActive || !CHANNEL_ID) return;
@@ -200,10 +201,17 @@ async function runEngine() {
         if (pendingPrediction && pendingPrediction.issue === latestIssue) {
             if (pendingPrediction.predicted === actualResult) {
                 sessionWins++;
-                const winMsg = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
-                               `✅ *WIN WIN WIN!* 🎉\n` +
-                               `🏆 *Session Wins:* [${sessionWins}/${TARGET_WINS}]`;
-                await bot.sendMessage(CHANNEL_ID, winMsg, { parse_mode: 'Markdown' });
+                const winCaption = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
+                                   `✅ *WIN WIN WIN!* 🎉\n` +
+                                   `🏆 *Session Wins:* [${sessionWins}/${TARGET_WINS}]`;
+                
+                // 🎬 WIN HONE PAR GIF POST HOGA
+                try {
+                    await bot.sendAnimation(CHANNEL_ID, WIN_GIF_URL, { caption: winCaption, parse_mode: 'Markdown' });
+                } catch (gifErr) {
+                    await bot.sendMessage(CHANNEL_ID, winCaption, { parse_mode: 'Markdown' });
+                }
+
                 currentLevel = 1; // Reset to level 1 on win
             } else {
                 currentLevel++;
@@ -270,4 +278,4 @@ async function runEngine() {
 }
 
 setInterval(runEngine, 3500);
-console.log('🤖 Root-Digit Logic Bot with Photos Ready!');
+console.log('🤖 Root-Digit Logic Bot with GIFs & Photos Ready!');
