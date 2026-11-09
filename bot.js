@@ -3,7 +3,7 @@ const axios = require('axios');
 const http = require('http');
 
 // ==========================================
-// 1. DUMMY SERVER (RENDER ALIVE)
+// 1. DUMMY SERVER (RENDER ALIVE RAKHNE KE LIYE)
 // ==========================================
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
@@ -14,15 +14,15 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 2. CONFIGURATION & DIRECT MEDIA
+// 2. CONFIGURATION & DIRECT MEDIA (DIRECT CDN LINKS)
 // ==========================================
 const BOT_TOKEN = '9035645654:AAFHoRNKHSuehNE4rH7FbyIx1ofx82vrLj4';
 const TARGET_WINS = 10;
 
-// Direct verified image links
-let START_IMAGE = 'https://picsum.photos/800/450';
-let CLOSE_IMAGE = 'https://picsum.photos/800/451';
-let WIN_GIF = 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif';
+// Direct Image CDN links
+const START_IMAGE = 'https://i.ibb.co/Xx2DpkWx/image.jpg';
+const CLOSE_IMAGE = 'https://i.ibb.co/ksT1Ky5h/image.jpg';
+const WIN_GIF = 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif';
 
 let CHANNEL_ID = null;
 let isBotActive = false;
@@ -34,7 +34,7 @@ let busy = false;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// WinGo 30s Endpoints
+// WinGo 30s Redundant Endpoints
 const API_ENDPOINTS = [
     'https://draw.ar-lottery02.com/WinGo/WinGo_30S/GetHistoryIssuePage.json',
     'https://draw.ar-lottery03.com/WinGo/WinGo_30S/GetHistoryIssuePage.json',
@@ -43,7 +43,7 @@ const API_ENDPOINTS = [
 ];
 
 // ==========================================
-// 3. SPIDER ROOT DIGIT ENGINE (FROM HTML)
+// 3. EXACT ROOT DIGIT ENGINE (FROM HTML)
 // ==========================================
 const REQUIRED_RESULTS = 5;
 const REVERSE_LEVELS = [2, 3];
@@ -76,34 +76,39 @@ function computePredictionDetails(numbers) {
     return { numbers: five, sum, rootDigit, rawPrediction };
 }
 
-// Robust photo sender (downloads as buffer first to prevent Telegram URL block)
+// Media Sender with Auto Buffer & Fallback
 async function sendPhotoSafe(chatId, mediaSource, caption) {
     try {
         if (typeof mediaSource === 'string' && mediaSource.startsWith('http')) {
-            const response = await axios.get(mediaSource, { responseType: 'arraybuffer', timeout: 5000 });
+            const response = await axios.get(mediaSource, { 
+                responseType: 'arraybuffer', 
+                timeout: 6000,
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+            });
             const buffer = Buffer.from(response.data);
             await bot.sendPhoto(chatId, buffer, { caption: caption, parse_mode: 'Markdown' });
         } else {
             await bot.sendPhoto(chatId, mediaSource, { caption: caption, parse_mode: 'Markdown' });
         }
     } catch (err) {
-        console.error('Photo send error:', err.message);
         await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
     }
 }
 
-// Robust animation/GIF sender
 async function sendGifSafe(chatId, gifSource, caption) {
     try {
         if (typeof gifSource === 'string' && gifSource.startsWith('http')) {
-            const response = await axios.get(gifSource, { responseType: 'arraybuffer', timeout: 5000 });
+            const response = await axios.get(gifSource, { 
+                responseType: 'arraybuffer', 
+                timeout: 6000,
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+            });
             const buffer = Buffer.from(response.data);
             await bot.sendAnimation(chatId, buffer, { caption: caption, parse_mode: 'Markdown' });
         } else {
             await bot.sendAnimation(chatId, gifSource, { caption: caption, parse_mode: 'Markdown' });
         }
     } catch (err) {
-        console.error('GIF send error:', err.message);
         await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
     }
 }
@@ -131,7 +136,7 @@ async function sendClosePoster() {
 }
 
 // ==========================================
-// 5. SESSION CONTROLS & FILE ID CAPTURE
+// 5. SESSION CONTROLS
 // ==========================================
 async function startSession(chatId) {
     isBotActive = true;
@@ -164,28 +169,13 @@ bot.on('channel_post', async (msg) => {
 bot.on('message', async (msg) => {
     if (msg.chat.type === 'private') {
         const text = (msg.text || '').trim();
-
-        // Agar aap bot ko koi photo send karein to wo uski File ID bata dega
-        if (msg.photo && msg.photo.length > 0) {
-            const fileId = msg.photo[msg.photo.length - 1].file_id;
-            bot.sendMessage(msg.chat.id, `📸 *Photo File ID:* \`${fileId}\`\n\nIsko code me START_IMAGE ya CLOSE_IMAGE ki jagah laga sakte ho.`, { parse_mode: 'Markdown' });
-            return;
-        }
-
-        // Agar aap koi GIF bhejein
-        if (msg.animation) {
-            const fileId = msg.animation.file_id;
-            bot.sendMessage(msg.chat.id, `🎬 *GIF File ID:* \`${fileId}\`\n\nIsko code me WIN_GIF ki jagah laga sakte ho.`, { parse_mode: 'Markdown' });
-            return;
-        }
-
         if (text === '/start') {
             if (!CHANNEL_ID) {
                 bot.sendMessage(msg.chat.id, `⚠️ Pehle apne Channel me koi bhi message bhejo taaki bot channel link kar sake!`);
                 return;
             }
             await startSession(msg.chat.id);
-            bot.sendMessage(msg.chat.id, `▶️ Bot Live ho gaya hai!`);
+            bot.sendMessage(msg.chat.id, `▶️ Bot Live ho gaya hai channel me!`);
         } else if (text === '/stop') {
             await stopSession(msg.chat.id);
             bot.sendMessage(msg.chat.id, `⏹ Bot Band ho gaya!`);
@@ -194,12 +184,12 @@ bot.on('message', async (msg) => {
 });
 
 // ==========================================
-// 6. API FETCH
+// 6. API FETCH (MULTI-ENDPOINT FALLBACK)
 // ==========================================
 async function fetchLatestData() {
     for (const url of API_ENDPOINTS) {
         try {
-            const res = await axios.get(`${url}?pageNo=1&pageSize=10`, { timeout: 3500 });
+            const res = await axios.get(`${url}?pageNo=1&pageSize=10`, { timeout: 3000 });
             if (res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
                 return res.data.data.list;
             }
@@ -209,7 +199,7 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 7. PREDICTION ENGINE (WITH WIN GIF)
+// 7. PREDICTION ENGINE (ANTI-FREEZE RECOVERY)
 // ==========================================
 async function runEngine() {
     if (busy || !isBotActive || !CHANNEL_ID) return;
@@ -234,34 +224,42 @@ async function runEngine() {
         const latestNum = parseInt(latestResult.number);
         const actualResult = latestNum >= 5 ? 'BIG' : 'SMALL';
 
-        // 1. Result Check
-        if (pendingPrediction && pendingPrediction.issue === latestIssue) {
-            if (pendingPrediction.predicted === actualResult) {
-                sessionWins++;
-                const winCaption = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
-                                   `✅ *WIN WIN WIN!* 🎉\n` +
-                                   `🏆 *Session Wins:* [${sessionWins}/${TARGET_WINS}]`;
-                
-                // WIN par Animated GIF post
-                await sendGifSafe(CHANNEL_ID, WIN_GIF, winCaption);
-                currentLevel = 1;
-            } else {
-                currentLevel++;
-                const lossMsg = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
-                                `❌ *LOSS* ➡️ Go to *Level ${currentLevel}* (X3/X2)`;
-                await bot.sendMessage(CHANNEL_ID, lossMsg, { parse_mode: 'Markdown' });
-            }
-            pendingPrediction = null;
+        // 1. Result Matching & Auto-Recovery (Lag Prevention)
+        if (pendingPrediction) {
+            const pendingBig = BigInt(pendingPrediction.issue);
+            const latestBig = BigInt(latestIssue);
 
-            if (sessionWins >= TARGET_WINS) {
-                isBotActive = false;
-                await sendClosePoster();
-                busy = false;
-                return;
+            // Agar result match ho gaya
+            if (pendingBig === latestBig) {
+                if (pendingPrediction.predicted === actualResult) {
+                    sessionWins++;
+                    const winCaption = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
+                                       `✅ *WIN WIN WIN!* 🎉\n` +
+                                       `🏆 *Session Wins:* [${sessionWins}/${TARGET_WINS}]`;
+                    await sendGifSafe(CHANNEL_ID, WIN_GIF, winCaption);
+                    currentLevel = 1;
+                } else {
+                    currentLevel++;
+                    const lossMsg = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
+                                    `❌ *LOSS* ➡️ Go to *Level ${currentLevel}* (X3/X2)`;
+                    await bot.sendMessage(CHANNEL_ID, lossMsg, { parse_mode: 'Markdown' });
+                }
+                pendingPrediction = null;
+
+                if (sessionWins >= TARGET_WINS) {
+                    isBotActive = false;
+                    await sendClosePoster();
+                    busy = false;
+                    return;
+                }
+            } 
+            // Agar round aage nikal gaya aur match reh gaya (Auto-Clear deadlock)
+            else if (latestBig > pendingBig) {
+                pendingPrediction = null;
             }
         }
 
-        // 2. Next Prediction
+        // 2. Next Period Prediction Generation
         const nextIssue = (BigInt(latestIssue) + 1n).toString();
         if (lastProcessedIssue !== nextIssue && !pendingPrediction) {
             lastProcessedIssue = nextIssue;
@@ -307,5 +305,6 @@ async function runEngine() {
     }
 }
 
-setInterval(runEngine, 3500);
-console.log('🤖 Bot Engine Ready: Buffer Photos & GIFs Active!');
+// 3 second interval for rapid sync
+setInterval(runEngine, 3000);
+console.log('🤖 Vipul Prediction Bot Ready: Anti-Freeze Engine Active!');
