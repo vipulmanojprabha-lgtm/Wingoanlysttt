@@ -27,13 +27,13 @@ let CHANNEL_ID = null;
 let isBotActive = false;
 let sessionWins = 0;
 let currentLevel = 1;
-let currentPrediction = null; // Jo abhi active prediction hai
-let settledIssues = new Set(); // Jo periods settle ho chuke hain
-let isRunning = false;
+
+let currentPrediction = null; 
+let lastSettledIssue = null;  
+let isChecking = false;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// WinGo 30s Endpoints
 const API_ENDPOINTS = [
     'https://draw.ar-lottery02.com/WinGo/WinGo_30S/GetHistoryIssuePage.json',
     'https://draw.ar-lottery03.com/WinGo/WinGo_30S/GetHistoryIssuePage.json',
@@ -73,36 +73,27 @@ function computePredictionDetails(numbers) {
     return { numbers: five, sum, rootDigit, rawPrediction };
 }
 
-// Media senders with buffer fallback
-async function sendPhotoSafe(chatId, mediaSource, caption) {
+// ==========================================
+// 4. SAFE SENDER (NEVER FREEZE)
+// ==========================================
+async function sendPhotoSafe(chatId, url, caption) {
     try {
-        if (typeof mediaSource === 'string' && mediaSource.startsWith('http')) {
-            const res = await axios.get(mediaSource, { responseType: 'arraybuffer', timeout: 5000 });
-            await bot.sendPhoto(chatId, Buffer.from(res.data), { caption, parse_mode: 'Markdown' });
-        } else {
-            await bot.sendPhoto(chatId, mediaSource, { caption, parse_mode: 'Markdown' });
-        }
+        const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 3000 });
+        await bot.sendPhoto(chatId, Buffer.from(res.data), { caption, parse_mode: 'Markdown' });
     } catch (e) {
         await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
     }
 }
 
-async function sendGifSafe(chatId, gifSource, caption) {
+async function sendGifSafe(chatId, url, caption) {
     try {
-        if (typeof gifSource === 'string' && gifSource.startsWith('http')) {
-            const res = await axios.get(gifSource, { responseType: 'arraybuffer', timeout: 5000 });
-            await bot.sendAnimation(chatId, Buffer.from(res.data), { caption, parse_mode: 'Markdown' });
-        } else {
-            await bot.sendAnimation(chatId, gifSource, { caption, parse_mode: 'Markdown' });
-        }
+        const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 3000 });
+        await bot.sendAnimation(chatId, Buffer.from(res.data), { caption, parse_mode: 'Markdown' });
     } catch (e) {
         await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
     }
 }
 
-// ==========================================
-// 4. POSTERS
-// ==========================================
 async function sendStartPoster() {
     if (!CHANNEL_ID) return;
     const caption = `🔥 *VIPUL BHAI OFFICIAL TRADING SESSION START* 🔥\n\n` +
@@ -123,14 +114,14 @@ async function sendClosePoster() {
 }
 
 // ==========================================
-// 5. MANUAL CONTROLS
+// 5. COMMANDS
 // ==========================================
 async function startSession(chatId) {
     isBotActive = true;
     sessionWins = 0;
     currentLevel = 1;
     currentPrediction = null;
-    settledIssues.clear();
+    lastSettledIssue = null;
     await sendStartPoster();
 }
 
@@ -167,12 +158,12 @@ bot.on('message', async (msg) => {
 });
 
 // ==========================================
-// 6. DATA FETCH
+// 6. DATA API FETCH
 // ==========================================
 async function fetchLatestData() {
     for (const url of API_ENDPOINTS) {
         try {
-            const res = await axios.get(`${url}?pageNo=1&pageSize=10`, { timeout: 2500 });
+            const res = await axios.get(`${url}?pageNo=1&pageSize=10&_t=${Date.now()}`, { timeout: 2000 });
             if (res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
                 return res.data.data.list;
             }
@@ -182,39 +173,38 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 7. PREDICTION ENGINE (CONTINUOUS RECOVERY)
+// 7. PREDICTION ENGINE (NON-STOP CONTINUOUS)
 // ==========================================
-async function runEngine() {
-    if (isRunning || !isBotActive || !CHANNEL_ID) return;
-    isRunning = true;
+async function processRound() {
+    if (isChecking || !isBotActive || !CHANNEL_ID) return;
+    isChecking = true;
 
     try {
         if (sessionWins >= TARGET_WINS) {
             isBotActive = false;
             await sendClosePoster();
-            isRunning = false;
+            isChecking = false;
             return;
         }
 
         const list = await fetchLatestData();
         if (!list || list.length < REQUIRED_RESULTS) {
-            isRunning = false;
+            isChecking = false;
             return;
         }
 
-        const latestResult = list[0];
-        const latestIssue = String(latestResult.issueNumber);
-        const latestNum = parseInt(latestResult.number);
+        const latestItem = list[0];
+        const latestIssue = String(latestItem.issueNumber);
+        const latestNum = parseInt(latestItem.number);
         const actualResult = latestNum >= 5 ? 'BIG' : 'SMALL';
 
-        // 1. Result Matching & Settlement
-        if (currentPrediction && !settledIssues.has(latestIssue)) {
-            const pIssue = BigInt(currentPrediction.issue);
-            const lIssue = BigInt(latestIssue);
+        // 1. RESULT CHECK (जब तक नया रिजल्ट API पर नहीं दिखेगा, इंतज़ार करेगा)
+        if (currentPrediction) {
+            const predIssue = BigInt(currentPrediction.issue);
+            const liveIssue = BigInt(latestIssue);
 
-            // Agar exact result aa gaya
-            if (pIssue === lIssue) {
-                settledIssues.add(latestIssue);
+            if (liveIssue >= predIssue && lastSettledIssue !== latestIssue) {
+                lastSettledIssue = latestIssue;
 
                 if (currentPrediction.predicted === actualResult) {
                     sessionWins++;
@@ -230,26 +220,23 @@ async function runEngine() {
                     await bot.sendMessage(CHANNEL_ID, lossMsg, { parse_mode: 'Markdown' });
                 }
 
-                currentPrediction = null; // Free for next round
+                currentPrediction = null; // फ्री हो गया अगले प्रेडिक्शन के लिए
 
                 if (sessionWins >= TARGET_WINS) {
                     isBotActive = false;
                     await sendClosePoster();
-                    isRunning = false;
+                    isChecking = false;
                     return;
                 }
-            } 
-            // Agar round aage jump kar gaya
-            else if (lIssue > pIssue) {
-                settledIssues.add(currentPrediction.issue);
-                currentPrediction = null; // Force clear
+            } else if (Date.now() - currentPrediction.createdTime > 34000) {
+                // Hard reset if API delays
+                currentPrediction = null;
             }
         }
 
-        // 2. Next Round Prediction Generation (Hamesha Agle Period Par Banega)
-        const nextIssue = (BigInt(latestIssue) + 1n).toString();
-
+        // 2. NEXT PREDICTION GENERATION (तुरंत अगला प्रेडिक्शन बनाएगा)
         if (!currentPrediction) {
+            const nextIssue = (BigInt(latestIssue) + 1n).toString();
             const historyFive = list.slice(0, REQUIRED_RESULTS).map(item => Number(item.number));
             const details = computePredictionDetails(historyFive);
 
@@ -264,7 +251,8 @@ async function runEngine() {
 
                 currentPrediction = {
                     issue: nextIssue,
-                    predicted: finalPrediction
+                    predicted: finalPrediction,
+                    createdTime: Date.now()
                 };
 
                 const calcInfo = `[${details.numbers.join('+')}=${details.sum} ➜ Root: ${details.rootDigit}]`;
@@ -285,12 +273,13 @@ async function runEngine() {
         }
 
     } catch (err) {
-        console.error('Engine error:', err.message);
+        console.error('Bot Loop Error:', err.message);
     } finally {
-        isRunning = false;
+        isChecking = false;
     }
 }
 
-// 2 second fast loop
-setInterval(runEngine, 2000);
-console.log('🤖 Vipul Prediction Bot: Non-Stop Loop with Instant Recovery Active!');
+// 2 सेकंड का नियमित चेक
+setInterval(processRound, 2000);
+console.log('🤖 Vipul Prediction Bot: Production-Ready Engine Active!');
+            
