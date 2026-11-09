@@ -8,13 +8,13 @@ const http = require('http');
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Vipul Prediction Bot is Running\n');
+    res.end('Vipul Spider Engine Bot Running\n');
 }).listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
 
 // ==========================================
-// 2. CONFIGURATION & DIRECT MEDIA
+// 2. CONFIGURATION & MEDIA
 // ==========================================
 const BOT_TOKEN = '9035645654:AAFHoRNKHSuehNE4rH7FbyIx1ofx82vrLj4';
 const TARGET_WINS = 10;
@@ -27,9 +27,8 @@ let CHANNEL_ID = null;
 let isBotActive = false;
 let sessionWins = 0;
 let currentLevel = 1;
-
-let currentPrediction = null; 
-let lastSettledIssue = null;  
+let pendingPrediction = null;
+let lastSettledIssue = null;
 let isChecking = false;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -41,9 +40,9 @@ const API_ENDPOINTS = [
     'https://draw.ar-lottery05.com/WinGo/WinGo_30S/GetHistoryIssuePage.json'
 ];
 
-// ==========================================
-// 3. EXACT ROOT DIGIT ENGINE (FROM HTML)
-// ==========================================
+// ================================================================
+// 3. EXACT ROOT DIGIT ENGINE (COPIED DIRECTLY FROM HTML SOURCE)
+// ================================================================
 const REQUIRED_RESULTS = 5;
 const REVERSE_LEVELS = [2, 3];
 
@@ -52,7 +51,9 @@ function isReverseLevel(level) {
 }
 
 function flipSignal(sig) {
-    return sig === 'BIG' ? 'SMALL' : 'BIG';
+    if (sig === 'BIG' || sig === 'B') return 'SMALL';
+    if (sig === 'SMALL' || sig === 'S') return 'BIG';
+    return sig;
 }
 
 function computePredictionDetails(numbers) {
@@ -61,24 +62,28 @@ function computePredictionDetails(numbers) {
     if (five.some(n => !Number.isFinite(n))) return null;
 
     const sum = five.reduce((a, b) => a + b, 0);
+    const steps = [];
     let current = sum;
 
     while (current > 9) {
         const digits = String(current).split('').map(Number);
-        current = digits.reduce((a, b) => a + b, 0);
+        const next = digits.reduce((a, b) => a + b, 0);
+        steps.push({ digits, result: next, expression: digits.join(' + ') + ' = ' + next });
+        current = next;
     }
 
     const rootDigit = current;
-    const rawPrediction = rootDigit >= 5 ? 'BIG' : 'SMALL';
-    return { numbers: five, sum, rootDigit, rawPrediction };
+    const prediction = rootDigit >= 5 ? 'BIG' : 'SMALL';
+
+    return { numbers: five, sum, steps, rootDigit, prediction };
 }
 
 // ==========================================
-// 4. SAFE SENDER (NEVER FREEZE)
+// 4. SAFE MEDIA SENDER (NO BOT CRASH)
 // ==========================================
 async function sendPhotoSafe(chatId, url, caption) {
     try {
-        const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 3000 });
+        const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 3500 });
         await bot.sendPhoto(chatId, Buffer.from(res.data), { caption, parse_mode: 'Markdown' });
     } catch (e) {
         await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
@@ -87,7 +92,7 @@ async function sendPhotoSafe(chatId, url, caption) {
 
 async function sendGifSafe(chatId, url, caption) {
     try {
-        const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 3000 });
+        const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 3500 });
         await bot.sendAnimation(chatId, Buffer.from(res.data), { caption, parse_mode: 'Markdown' });
     } catch (e) {
         await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
@@ -97,7 +102,7 @@ async function sendGifSafe(chatId, url, caption) {
 async function sendStartPoster() {
     if (!CHANNEL_ID) return;
     const caption = `🔥 *VIPUL BHAI OFFICIAL TRADING SESSION START* 🔥\n\n` +
-                    `🎮 *Game:* WinGo 30s (Spider Engine)\n` +
+                    `🎮 *Game:* WinGo 30s (Spider Panel Engine)\n` +
                     `🎯 *Target:* ${TARGET_WINS} CONFIRMED WINS\n` +
                     `💰 *Fund Management:* Maintain 5 to 7 Levels\n\n` +
                     `⚡ _Signals starting now! Follow strictly._`;
@@ -114,20 +119,20 @@ async function sendClosePoster() {
 }
 
 // ==========================================
-// 5. COMMANDS
+// 5. TELEGRAM COMMANDS
 // ==========================================
 async function startSession(chatId) {
     isBotActive = true;
     sessionWins = 0;
     currentLevel = 1;
-    currentPrediction = null;
+    pendingPrediction = null;
     lastSettledIssue = null;
     await sendStartPoster();
 }
 
 async function stopSession(chatId) {
     isBotActive = false;
-    currentPrediction = null;
+    pendingPrediction = null;
     if (CHANNEL_ID) {
         await bot.sendMessage(CHANNEL_ID, `⏹ *Session Stopped by Admin!*`, { parse_mode: 'Markdown' });
     }
@@ -158,12 +163,12 @@ bot.on('message', async (msg) => {
 });
 
 // ==========================================
-// 6. DATA API FETCH
+// 6. LIVE API DATA EXTRACTION
 // ==========================================
 async function fetchLatestData() {
     for (const url of API_ENDPOINTS) {
         try {
-            const res = await axios.get(`${url}?pageNo=1&pageSize=10&_t=${Date.now()}`, { timeout: 2000 });
+            const res = await axios.get(`${url}?pageNo=1&pageSize=10&_t=${Date.now()}`, { timeout: 2200 });
             if (res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
                 return res.data.data.list;
             }
@@ -173,9 +178,9 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 7. PREDICTION ENGINE (NON-STOP CONTINUOUS)
+// 7. PREDICTION ENGINE LOOP
 // ==========================================
-async function processRound() {
+async function runSpiderEngine() {
     if (isChecking || !isBotActive || !CHANNEL_ID) return;
     isChecking = true;
 
@@ -198,29 +203,31 @@ async function processRound() {
         const latestNum = parseInt(latestItem.number);
         const actualResult = latestNum >= 5 ? 'BIG' : 'SMALL';
 
-        // 1. RESULT CHECK (जब तक नया रिजल्ट API पर नहीं दिखेगा, इंतज़ार करेगा)
-        if (currentPrediction) {
-            const predIssue = BigInt(currentPrediction.issue);
+        // --------------------------------------------------
+        // STEP 1: SETTLE PENDING PREDICTION (WIN / LOSS)
+        // --------------------------------------------------
+        if (pendingPrediction) {
+            const predIssue = BigInt(pendingPrediction.issue);
             const liveIssue = BigInt(latestIssue);
 
             if (liveIssue >= predIssue && lastSettledIssue !== latestIssue) {
                 lastSettledIssue = latestIssue;
 
-                if (currentPrediction.predicted === actualResult) {
+                if (pendingPrediction.predicted === actualResult) {
                     sessionWins++;
                     const winCaption = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
                                        `✅ *WIN WIN WIN!* 🎉\n` +
                                        `🏆 *Session Wins:* [${sessionWins}/${TARGET_WINS}]`;
                     await sendGifSafe(CHANNEL_ID, WIN_GIF, winCaption);
-                    currentLevel = 1;
+                    currentLevel = 1; // Win par level 1 reset
                 } else {
-                    currentLevel++;
+                    currentLevel++; // Loss par next level
                     const lossMsg = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
                                     `❌ *LOSS* ➡️ Go to *Level ${currentLevel}* (X3/X2)`;
                     await bot.sendMessage(CHANNEL_ID, lossMsg, { parse_mode: 'Markdown' });
                 }
 
-                currentPrediction = null; // फ्री हो गया अगले प्रेडिक्शन के लिए
+                pendingPrediction = null; // Unblock state immediately
 
                 if (sessionWins >= TARGET_WINS) {
                     isBotActive = false;
@@ -228,40 +235,44 @@ async function processRound() {
                     isChecking = false;
                     return;
                 }
-            } else if (Date.now() - currentPrediction.createdTime > 34000) {
-                // Hard reset if API delays
-                currentPrediction = null;
+            } else if (Date.now() - pendingPrediction.createdAt > 34000) {
+                // Agar API result aane me delay ho to freeze na ho
+                pendingPrediction = null;
             }
         }
 
-        // 2. NEXT PREDICTION GENERATION (तुरंत अगला प्रेडिक्शन बनाएगा)
-        if (!currentPrediction) {
+        // --------------------------------------------------
+        // STEP 2: GENERATE NEXT PREDICTION WITH EXACT HTML LOGIC
+        // --------------------------------------------------
+        if (!pendingPrediction) {
             const nextIssue = (BigInt(latestIssue) + 1n).toString();
             const historyFive = list.slice(0, REQUIRED_RESULTS).map(item => Number(item.number));
             const details = computePredictionDetails(historyFive);
 
             if (details) {
-                let finalPrediction = details.rawPrediction;
-                let isReversed = false;
+                let rawSig = details.prediction; // BIG or SMALL
+                let finalSig = rawSig;
+                let revActive = false;
 
+                // Level 2 aur Level 3 par base prediction flip hota hai
                 if (isReverseLevel(currentLevel)) {
-                    finalPrediction = flipSignal(finalPrediction);
-                    isReversed = true;
+                    finalSig = flipSignal(rawSig);
+                    revActive = true;
                 }
 
-                currentPrediction = {
+                pendingPrediction = {
                     issue: nextIssue,
-                    predicted: finalPrediction,
-                    createdTime: Date.now()
+                    predicted: finalSig,
+                    createdAt: Date.now()
                 };
 
                 const calcInfo = `[${details.numbers.join('+')}=${details.sum} ➜ Root: ${details.rootDigit}]`;
-                const revTag = isReversed ? ` 🔄 *(L${currentLevel} REV)*` : '';
+                const revTag = revActive ? ` 🔄 *(L${currentLevel} REV)*` : '';
 
                 const predMsg = `📊 *VIPUL BHAI 30S PREDICTION*\n` +
                                 `━━━━━━━━━━━━━━━━━━━\n` +
                                 `🎮 *Period:* \`${nextIssue.slice(-4)}\`\n` +
-                                `🎯 *Prediction:* *${finalPrediction}*${revTag}\n` +
+                                `🎯 *Prediction:* *${finalSig}*${revTag}\n` +
                                 `📈 *Level:* ${currentLevel}\n` +
                                 `🧮 *Calc:* \`${calcInfo}\`\n` +
                                 `🏆 *Target:* [${sessionWins}/${TARGET_WINS}] Wins\n` +
@@ -273,13 +284,12 @@ async function processRound() {
         }
 
     } catch (err) {
-        console.error('Bot Loop Error:', err.message);
+        console.error('Engine Loop Error:', err.message);
     } finally {
         isChecking = false;
     }
 }
 
-// 2 सेकंड का नियमित चेक
-setInterval(processRound, 2000);
-console.log('🤖 Vipul Prediction Bot: Production-Ready Engine Active!');
-            
+// 2 सेकंड का नियमित चेक (WinGo 30s के अनुसार)
+setInterval(runSpiderEngine, 2000);
+console.log('🤖 Vipul Spider Engine Bot Live & Synchronized!');
