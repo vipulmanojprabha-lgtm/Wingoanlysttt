@@ -3,7 +3,7 @@ const axios = require('axios');
 const http = require('http');
 
 // ==========================================
-// 1. DUMMY SERVER (RENDER ALIVE RAKHNE KE LIYE)
+// 1. DUMMY SERVER (RENDER ALIVE)
 // ==========================================
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
@@ -14,12 +14,11 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 2. CONFIGURATION & DIRECT MEDIA (DIRECT CDN LINKS)
+// 2. CONFIGURATION & DIRECT MEDIA
 // ==========================================
 const BOT_TOKEN = '9035645654:AAFHoRNKHSuehNE4rH7FbyIx1ofx82vrLj4';
 const TARGET_WINS = 10;
 
-// Direct Image CDN links
 const START_IMAGE = 'https://i.ibb.co/Xx2DpkWx/image.jpg';
 const CLOSE_IMAGE = 'https://i.ibb.co/ksT1Ky5h/image.jpg';
 const WIN_GIF = 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif';
@@ -30,11 +29,11 @@ let sessionWins = 0;
 let currentLevel = 1;
 let pendingPrediction = null;
 let lastProcessedIssue = null;
-let busy = false;
+let isRunning = false;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// WinGo 30s Redundant Endpoints
+// WinGo 30s Endpoints
 const API_ENDPOINTS = [
     'https://draw.ar-lottery02.com/WinGo/WinGo_30S/GetHistoryIssuePage.json',
     'https://draw.ar-lottery03.com/WinGo/WinGo_30S/GetHistoryIssuePage.json',
@@ -43,7 +42,7 @@ const API_ENDPOINTS = [
 ];
 
 // ==========================================
-// 3. EXACT ROOT DIGIT ENGINE (FROM HTML)
+// 3. ROOT DIGIT LOGIC
 // ==========================================
 const REQUIRED_RESULTS = 5;
 const REVERSE_LEVELS = [2, 3];
@@ -76,21 +75,16 @@ function computePredictionDetails(numbers) {
     return { numbers: five, sum, rootDigit, rawPrediction };
 }
 
-// Media Sender with Auto Buffer & Fallback
+// Media senders with buffer fallback
 async function sendPhotoSafe(chatId, mediaSource, caption) {
     try {
         if (typeof mediaSource === 'string' && mediaSource.startsWith('http')) {
-            const response = await axios.get(mediaSource, { 
-                responseType: 'arraybuffer', 
-                timeout: 6000,
-                headers: { 'User-Agent': 'Mozilla/5.0' }
-            });
-            const buffer = Buffer.from(response.data);
-            await bot.sendPhoto(chatId, buffer, { caption: caption, parse_mode: 'Markdown' });
+            const res = await axios.get(mediaSource, { responseType: 'arraybuffer', timeout: 5000 });
+            await bot.sendPhoto(chatId, Buffer.from(res.data), { caption, parse_mode: 'Markdown' });
         } else {
-            await bot.sendPhoto(chatId, mediaSource, { caption: caption, parse_mode: 'Markdown' });
+            await bot.sendPhoto(chatId, mediaSource, { caption, parse_mode: 'Markdown' });
         }
-    } catch (err) {
+    } catch (e) {
         await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
     }
 }
@@ -98,17 +92,12 @@ async function sendPhotoSafe(chatId, mediaSource, caption) {
 async function sendGifSafe(chatId, gifSource, caption) {
     try {
         if (typeof gifSource === 'string' && gifSource.startsWith('http')) {
-            const response = await axios.get(gifSource, { 
-                responseType: 'arraybuffer', 
-                timeout: 6000,
-                headers: { 'User-Agent': 'Mozilla/5.0' }
-            });
-            const buffer = Buffer.from(response.data);
-            await bot.sendAnimation(chatId, buffer, { caption: caption, parse_mode: 'Markdown' });
+            const res = await axios.get(gifSource, { responseType: 'arraybuffer', timeout: 5000 });
+            await bot.sendAnimation(chatId, Buffer.from(res.data), { caption, parse_mode: 'Markdown' });
         } else {
-            await bot.sendAnimation(chatId, gifSource, { caption: caption, parse_mode: 'Markdown' });
+            await bot.sendAnimation(chatId, gifSource, { caption, parse_mode: 'Markdown' });
         }
-    } catch (err) {
+    } catch (e) {
         await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
     }
 }
@@ -136,7 +125,7 @@ async function sendClosePoster() {
 }
 
 // ==========================================
-// 5. SESSION CONTROLS
+// 5. MANUAL CONTROLS
 // ==========================================
 async function startSession(chatId) {
     isBotActive = true;
@@ -158,12 +147,8 @@ async function stopSession(chatId) {
 bot.on('channel_post', async (msg) => {
     CHANNEL_ID = msg.chat.id;
     const text = (msg.text || '').trim();
-
-    if (text === '/start') {
-        await startSession(msg.chat.id);
-    } else if (text === '/stop') {
-        await stopSession(msg.chat.id);
-    }
+    if (text === '/start') await startSession(msg.chat.id);
+    else if (text === '/stop') await stopSession(msg.chat.id);
 });
 
 bot.on('message', async (msg) => {
@@ -184,12 +169,12 @@ bot.on('message', async (msg) => {
 });
 
 // ==========================================
-// 6. API FETCH (MULTI-ENDPOINT FALLBACK)
+// 6. DATA FETCH
 // ==========================================
 async function fetchLatestData() {
     for (const url of API_ENDPOINTS) {
         try {
-            const res = await axios.get(`${url}?pageNo=1&pageSize=10`, { timeout: 3000 });
+            const res = await axios.get(`${url}?pageNo=1&pageSize=10`, { timeout: 2500 });
             if (res.data && res.data.data && res.data.data.list && res.data.data.list.length > 0) {
                 return res.data.data.list;
             }
@@ -199,38 +184,38 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 7. PREDICTION ENGINE (ANTI-FREEZE RECOVERY)
+// 7. PREDICTION ENGINE (NO FREEZE LOOP)
 // ==========================================
 async function runEngine() {
-    if (busy || !isBotActive || !CHANNEL_ID) return;
-    busy = true;
+    if (isRunning || !isBotActive || !CHANNEL_ID) return;
+    isRunning = true;
 
     try {
         if (sessionWins >= TARGET_WINS) {
             isBotActive = false;
             await sendClosePoster();
-            busy = false;
+            isRunning = false;
             return;
         }
 
         const list = await fetchLatestData();
         if (!list || list.length < REQUIRED_RESULTS) {
-            busy = false;
+            isRunning = false;
             return;
         }
 
         const latestResult = list[0];
-        const latestIssue = latestResult.issueNumber;
+        const latestIssue = String(latestResult.issueNumber);
         const latestNum = parseInt(latestResult.number);
         const actualResult = latestNum >= 5 ? 'BIG' : 'SMALL';
 
-        // 1. Result Matching & Auto-Recovery (Lag Prevention)
+        // 1. Result Matching & Timeout Safety
         if (pendingPrediction) {
-            const pendingBig = BigInt(pendingPrediction.issue);
-            const latestBig = BigInt(latestIssue);
+            const pIssue = BigInt(pendingPrediction.issue);
+            const lIssue = BigInt(latestIssue);
+            const now = Date.now();
 
-            // Agar result match ho gaya
-            if (pendingBig === latestBig) {
+            if (pIssue === lIssue) {
                 if (pendingPrediction.predicted === actualResult) {
                     sessionWins++;
                     const winCaption = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
@@ -249,17 +234,16 @@ async function runEngine() {
                 if (sessionWins >= TARGET_WINS) {
                     isBotActive = false;
                     await sendClosePoster();
-                    busy = false;
+                    isRunning = false;
                     return;
                 }
-            } 
-            // Agar round aage nikal gaya aur match reh gaya (Auto-Clear deadlock)
-            else if (latestBig > pendingBig) {
+            } else if (lIssue > pIssue || (now - pendingPrediction.timestamp > 40000)) {
+                // Agar API delay ki wajah se match miss hua ya 40 sec se zyada ho gaye, deadlock todo
                 pendingPrediction = null;
             }
         }
 
-        // 2. Next Period Prediction Generation
+        // 2. Next Prediction Generation
         const nextIssue = (BigInt(latestIssue) + 1n).toString();
         if (lastProcessedIssue !== nextIssue && !pendingPrediction) {
             lastProcessedIssue = nextIssue;
@@ -278,7 +262,8 @@ async function runEngine() {
 
                 pendingPrediction = {
                     issue: nextIssue,
-                    predicted: finalPrediction
+                    predicted: finalPrediction,
+                    timestamp: Date.now()
                 };
 
                 const calcInfo = `[${details.numbers.join('+')}=${details.sum} ➜ Root: ${details.rootDigit}]`;
@@ -301,10 +286,10 @@ async function runEngine() {
     } catch (err) {
         console.error('Engine error:', err.message);
     } finally {
-        busy = false;
+        isRunning = false;
     }
 }
 
-// 3 second interval for rapid sync
-setInterval(runEngine, 3000);
-console.log('🤖 Vipul Prediction Bot Ready: Anti-Freeze Engine Active!');
+// Check every 2.5 seconds
+setInterval(runEngine, 2500);
+console.log('🤖 Vipul Prediction Bot: Auto-Recovery Loop Active!');
