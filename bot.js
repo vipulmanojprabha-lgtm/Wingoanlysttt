@@ -27,8 +27,8 @@ let CHANNEL_ID = null;
 let isBotActive = false;
 let sessionWins = 0;
 let currentLevel = 1;
-let pendingPrediction = null;
-let lastProcessedIssue = null;
+let currentPrediction = null; // Jo abhi active prediction hai
+let settledIssues = new Set(); // Jo periods settle ho chuke hain
 let isRunning = false;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -42,7 +42,7 @@ const API_ENDPOINTS = [
 ];
 
 // ==========================================
-// 3. ROOT DIGIT LOGIC
+// 3. EXACT ROOT DIGIT ENGINE (FROM HTML)
 // ==========================================
 const REQUIRED_RESULTS = 5;
 const REVERSE_LEVELS = [2, 3];
@@ -52,9 +52,7 @@ function isReverseLevel(level) {
 }
 
 function flipSignal(sig) {
-    if (sig === 'BIG') return 'SMALL';
-    if (sig === 'SMALL') return 'BIG';
-    return sig;
+    return sig === 'BIG' ? 'SMALL' : 'BIG';
 }
 
 function computePredictionDetails(numbers) {
@@ -131,14 +129,14 @@ async function startSession(chatId) {
     isBotActive = true;
     sessionWins = 0;
     currentLevel = 1;
-    pendingPrediction = null;
-    lastProcessedIssue = null;
+    currentPrediction = null;
+    settledIssues.clear();
     await sendStartPoster();
 }
 
 async function stopSession(chatId) {
     isBotActive = false;
-    pendingPrediction = null;
+    currentPrediction = null;
     if (CHANNEL_ID) {
         await bot.sendMessage(CHANNEL_ID, `⏹ *Session Stopped by Admin!*`, { parse_mode: 'Markdown' });
     }
@@ -184,7 +182,7 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 7. PREDICTION ENGINE (NO FREEZE LOOP)
+// 7. PREDICTION ENGINE (CONTINUOUS RECOVERY)
 // ==========================================
 async function runEngine() {
     if (isRunning || !isBotActive || !CHANNEL_ID) return;
@@ -209,14 +207,16 @@ async function runEngine() {
         const latestNum = parseInt(latestResult.number);
         const actualResult = latestNum >= 5 ? 'BIG' : 'SMALL';
 
-        // 1. Result Matching & Timeout Safety
-        if (pendingPrediction) {
-            const pIssue = BigInt(pendingPrediction.issue);
+        // 1. Result Matching & Settlement
+        if (currentPrediction && !settledIssues.has(latestIssue)) {
+            const pIssue = BigInt(currentPrediction.issue);
             const lIssue = BigInt(latestIssue);
-            const now = Date.now();
 
+            // Agar exact result aa gaya
             if (pIssue === lIssue) {
-                if (pendingPrediction.predicted === actualResult) {
+                settledIssues.add(latestIssue);
+
+                if (currentPrediction.predicted === actualResult) {
                     sessionWins++;
                     const winCaption = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
                                        `✅ *WIN WIN WIN!* 🎉\n` +
@@ -229,7 +229,8 @@ async function runEngine() {
                                     `❌ *LOSS* ➡️ Go to *Level ${currentLevel}* (X3/X2)`;
                     await bot.sendMessage(CHANNEL_ID, lossMsg, { parse_mode: 'Markdown' });
                 }
-                pendingPrediction = null;
+
+                currentPrediction = null; // Free for next round
 
                 if (sessionWins >= TARGET_WINS) {
                     isBotActive = false;
@@ -237,17 +238,18 @@ async function runEngine() {
                     isRunning = false;
                     return;
                 }
-            } else if (lIssue > pIssue || (now - pendingPrediction.timestamp > 40000)) {
-                // Agar API delay ki wajah se match miss hua ya 40 sec se zyada ho gaye, deadlock todo
-                pendingPrediction = null;
+            } 
+            // Agar round aage jump kar gaya
+            else if (lIssue > pIssue) {
+                settledIssues.add(currentPrediction.issue);
+                currentPrediction = null; // Force clear
             }
         }
 
-        // 2. Next Prediction Generation
+        // 2. Next Round Prediction Generation (Hamesha Agle Period Par Banega)
         const nextIssue = (BigInt(latestIssue) + 1n).toString();
-        if (lastProcessedIssue !== nextIssue && !pendingPrediction) {
-            lastProcessedIssue = nextIssue;
 
+        if (!currentPrediction) {
             const historyFive = list.slice(0, REQUIRED_RESULTS).map(item => Number(item.number));
             const details = computePredictionDetails(historyFive);
 
@@ -260,10 +262,9 @@ async function runEngine() {
                     isReversed = true;
                 }
 
-                pendingPrediction = {
+                currentPrediction = {
                     issue: nextIssue,
-                    predicted: finalPrediction,
-                    timestamp: Date.now()
+                    predicted: finalPrediction
                 };
 
                 const calcInfo = `[${details.numbers.join('+')}=${details.sum} ➜ Root: ${details.rootDigit}]`;
@@ -290,6 +291,6 @@ async function runEngine() {
     }
 }
 
-// Check every 2.5 seconds
-setInterval(runEngine, 2500);
-console.log('🤖 Vipul Prediction Bot: Auto-Recovery Loop Active!');
+// 2 second fast loop
+setInterval(runEngine, 2000);
+console.log('🤖 Vipul Prediction Bot: Non-Stop Loop with Instant Recovery Active!');
