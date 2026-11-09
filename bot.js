@@ -3,7 +3,7 @@ const axios = require('axios');
 const http = require('http');
 
 // ==========================================
-// 1. DUMMY SERVER (RENDER ALIVE RAKHNE KE LIYE)
+// 1. DUMMY SERVER (RENDER ALIVE)
 // ==========================================
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
@@ -14,15 +14,15 @@ http.createServer((req, res) => {
 });
 
 // ==========================================
-// 2. CONFIGURATION & MEDIA LINKS
+// 2. CONFIGURATION & DIRECT MEDIA
 // ==========================================
 const BOT_TOKEN = '9035645654:AAFHoRNKHSuehNE4rH7FbyIx1ofx82vrLj4';
-const TARGET_WINS = 10; // 10 Wins hote hi bot auto-stop hoga
+const TARGET_WINS = 10;
 
-// 🖼️ वर्किंग इमेज और विनिंग GIF लिंक्स
-const START_IMAGE_URL = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80';
-const CLOSE_IMAGE_URL = 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1200&q=80';
-const WIN_GIF_URL = 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif'; // Celebration Winning GIF
+// Direct verified image links
+let START_IMAGE = 'https://picsum.photos/800/450';
+let CLOSE_IMAGE = 'https://picsum.photos/800/451';
+let WIN_GIF = 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif';
 
 let CHANNEL_ID = null;
 let isBotActive = false;
@@ -43,10 +43,10 @@ const API_ENDPOINTS = [
 ];
 
 // ==========================================
-// 3. EXACT ROOT DIGIT ENGINE (FROM HTML FILE)
+// 3. SPIDER ROOT DIGIT ENGINE (FROM HTML)
 // ==========================================
 const REQUIRED_RESULTS = 5;
-const REVERSE_LEVELS = [2, 3]; // Level 2 aur 3 par reverse karega
+const REVERSE_LEVELS = [2, 3];
 
 function isReverseLevel(level) {
     return REVERSE_LEVELS.includes(Number(level));
@@ -76,8 +76,40 @@ function computePredictionDetails(numbers) {
     return { numbers: five, sum, rootDigit, rawPrediction };
 }
 
+// Robust photo sender (downloads as buffer first to prevent Telegram URL block)
+async function sendPhotoSafe(chatId, mediaSource, caption) {
+    try {
+        if (typeof mediaSource === 'string' && mediaSource.startsWith('http')) {
+            const response = await axios.get(mediaSource, { responseType: 'arraybuffer', timeout: 5000 });
+            const buffer = Buffer.from(response.data);
+            await bot.sendPhoto(chatId, buffer, { caption: caption, parse_mode: 'Markdown' });
+        } else {
+            await bot.sendPhoto(chatId, mediaSource, { caption: caption, parse_mode: 'Markdown' });
+        }
+    } catch (err) {
+        console.error('Photo send error:', err.message);
+        await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
+    }
+}
+
+// Robust animation/GIF sender
+async function sendGifSafe(chatId, gifSource, caption) {
+    try {
+        if (typeof gifSource === 'string' && gifSource.startsWith('http')) {
+            const response = await axios.get(gifSource, { responseType: 'arraybuffer', timeout: 5000 });
+            const buffer = Buffer.from(response.data);
+            await bot.sendAnimation(chatId, buffer, { caption: caption, parse_mode: 'Markdown' });
+        } else {
+            await bot.sendAnimation(chatId, gifSource, { caption: caption, parse_mode: 'Markdown' });
+        }
+    } catch (err) {
+        console.error('GIF send error:', err.message);
+        await bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
+    }
+}
+
 // ==========================================
-// 4. POSTERS WITH PHOTO (START & CLOSE)
+// 4. POSTERS
 // ==========================================
 async function sendStartPoster() {
     if (!CHANNEL_ID) return;
@@ -86,11 +118,7 @@ async function sendStartPoster() {
                     `🎯 *Target:* ${TARGET_WINS} CONFIRMED WINS\n` +
                     `💰 *Fund Management:* Maintain 5 to 7 Levels\n\n` +
                     `⚡ _Signals starting now! Follow strictly._`;
-    try {
-        await bot.sendPhoto(CHANNEL_ID, START_IMAGE_URL, { caption: caption, parse_mode: 'Markdown' });
-    } catch (e) {
-        await bot.sendMessage(CHANNEL_ID, caption, { parse_mode: 'Markdown' });
-    }
+    await sendPhotoSafe(CHANNEL_ID, START_IMAGE, caption);
 }
 
 async function sendClosePoster() {
@@ -99,15 +127,11 @@ async function sendClosePoster() {
                     `✅ *Total Wins:* ${sessionWins}/${TARGET_WINS} WINS\n` +
                     `💰 *All Members Book Heavy Profits!* 💰\n\n` +
                     `Agla session Vipul Bhai ke order par start hoga! 🚀`;
-    try {
-        await bot.sendPhoto(CHANNEL_ID, CLOSE_IMAGE_URL, { caption: caption, parse_mode: 'Markdown' });
-    } catch (e) {
-        await bot.sendMessage(CHANNEL_ID, caption, { parse_mode: 'Markdown' });
-    }
+    await sendPhotoSafe(CHANNEL_ID, CLOSE_IMAGE, caption);
 }
 
 // ==========================================
-// 5. ON-DEMAND SESSION CONTROLS
+// 5. SESSION CONTROLS & FILE ID CAPTURE
 // ==========================================
 async function startSession(chatId) {
     isBotActive = true;
@@ -126,7 +150,6 @@ async function stopSession(chatId) {
     }
 }
 
-// Channel Commands (/start ya /stop)
 bot.on('channel_post', async (msg) => {
     CHANNEL_ID = msg.chat.id;
     const text = (msg.text || '').trim();
@@ -138,20 +161,34 @@ bot.on('channel_post', async (msg) => {
     }
 });
 
-// Private Bot DM Commands
 bot.on('message', async (msg) => {
     if (msg.chat.type === 'private') {
         const text = (msg.text || '').trim();
+
+        // Agar aap bot ko koi photo send karein to wo uski File ID bata dega
+        if (msg.photo && msg.photo.length > 0) {
+            const fileId = msg.photo[msg.photo.length - 1].file_id;
+            bot.sendMessage(msg.chat.id, `📸 *Photo File ID:* \`${fileId}\`\n\nIsko code me START_IMAGE ya CLOSE_IMAGE ki jagah laga sakte ho.`, { parse_mode: 'Markdown' });
+            return;
+        }
+
+        // Agar aap koi GIF bhejein
+        if (msg.animation) {
+            const fileId = msg.animation.file_id;
+            bot.sendMessage(msg.chat.id, `🎬 *GIF File ID:* \`${fileId}\`\n\nIsko code me WIN_GIF ki jagah laga sakte ho.`, { parse_mode: 'Markdown' });
+            return;
+        }
+
         if (text === '/start') {
             if (!CHANNEL_ID) {
                 bot.sendMessage(msg.chat.id, `⚠️ Pehle apne Channel me koi bhi message bhejo taaki bot channel link kar sake!`);
                 return;
             }
             await startSession(msg.chat.id);
-            bot.sendMessage(msg.chat.id, `▶️ Bot Live ho gaya hai channel me!`);
+            bot.sendMessage(msg.chat.id, `▶️ Bot Live ho gaya hai!`);
         } else if (text === '/stop') {
             await stopSession(msg.chat.id);
-            bot.sendMessage(msg.chat.id, `⏹ Bot Band kar diya gaya hai!`);
+            bot.sendMessage(msg.chat.id, `⏹ Bot Band ho gaya!`);
         }
     }
 });
@@ -172,7 +209,7 @@ async function fetchLatestData() {
 }
 
 // ==========================================
-// 7. PREDICTION ENGINE LOOP (WITH WIN GIF)
+// 7. PREDICTION ENGINE (WITH WIN GIF)
 // ==========================================
 async function runEngine() {
     if (busy || !isBotActive || !CHANNEL_ID) return;
@@ -197,7 +234,7 @@ async function runEngine() {
         const latestNum = parseInt(latestResult.number);
         const actualResult = latestNum >= 5 ? 'BIG' : 'SMALL';
 
-        // 1. Check Result for Pending Prediction
+        // 1. Result Check
         if (pendingPrediction && pendingPrediction.issue === latestIssue) {
             if (pendingPrediction.predicted === actualResult) {
                 sessionWins++;
@@ -205,14 +242,9 @@ async function runEngine() {
                                    `✅ *WIN WIN WIN!* 🎉\n` +
                                    `🏆 *Session Wins:* [${sessionWins}/${TARGET_WINS}]`;
                 
-                // 🎬 WIN HONE PAR GIF POST HOGA
-                try {
-                    await bot.sendAnimation(CHANNEL_ID, WIN_GIF_URL, { caption: winCaption, parse_mode: 'Markdown' });
-                } catch (gifErr) {
-                    await bot.sendMessage(CHANNEL_ID, winCaption, { parse_mode: 'Markdown' });
-                }
-
-                currentLevel = 1; // Reset to level 1 on win
+                // WIN par Animated GIF post
+                await sendGifSafe(CHANNEL_ID, WIN_GIF, winCaption);
+                currentLevel = 1;
             } else {
                 currentLevel++;
                 const lossMsg = `🎯 *RESULT:* ${actualResult} (${latestNum})\n` +
@@ -229,12 +261,11 @@ async function runEngine() {
             }
         }
 
-        // 2. Generate Prediction for Next Period
+        // 2. Next Prediction
         const nextIssue = (BigInt(latestIssue) + 1n).toString();
         if (lastProcessedIssue !== nextIssue && !pendingPrediction) {
             lastProcessedIssue = nextIssue;
 
-            // HTML File Logic: Aakhri 5 numbers ka sum & root digit
             const historyFive = list.slice(0, REQUIRED_RESULTS).map(item => Number(item.number));
             const details = computePredictionDetails(historyFive);
 
@@ -242,7 +273,6 @@ async function runEngine() {
                 let finalPrediction = details.rawPrediction;
                 let isReversed = false;
 
-                // Level 2 & 3 Reverse logic
                 if (isReverseLevel(currentLevel)) {
                     finalPrediction = flipSignal(finalPrediction);
                     isReversed = true;
@@ -278,4 +308,4 @@ async function runEngine() {
 }
 
 setInterval(runEngine, 3500);
-console.log('🤖 Root-Digit Logic Bot with GIFs & Photos Ready!');
+console.log('🤖 Bot Engine Ready: Buffer Photos & GIFs Active!');
